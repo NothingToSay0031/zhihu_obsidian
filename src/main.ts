@@ -22,6 +22,7 @@ import { registerMenuCommands } from "./menu";
 import { ViewPlugin, ViewUpdate, EditorView } from "@codemirror/view";
 import { zhihuDesktopPreview } from "./preview";
 import * as path from "path";
+import { BatchPublishConfigModal, FolderSuggestModal } from "./folderSuggestModal";
 
 export default class ZhihuObPlugin extends Plugin {
     i18n: Lang;
@@ -139,6 +140,30 @@ export default class ZhihuObPlugin extends Plugin {
                 } else {
                     new Notice(loginNoticeStr);
                 }
+            },
+        });
+
+        this.addCommand({
+            id: "publish-all-notes-in-folder",
+            name: this.i18n.ui.batchPublishAllInFolder,
+            callback: async () => {
+                if (!(await login.checkIsUserLogin(this.app.vault))) {
+                    new Notice(loginNoticeStr);
+                    return;
+                }
+                new FolderSuggestModal(this.app, (folder) => {
+                    new BatchPublishConfigModal(
+                        this.app,
+                        folder,
+                        async (selectedFolder, overwritePublished) => {
+                            await publish.batchPublishFolder(
+                                this.app,
+                                selectedFolder.path,
+                                overwritePublished,
+                            );
+                        },
+                    ).open();
+                }).open();
             },
         });
 

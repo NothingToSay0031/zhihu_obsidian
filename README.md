@@ -37,6 +37,8 @@ This plugin allows you publish your markdown file directly to [Zhihu](https://ww
 - create and publish Zhihu answers
 - submit your article to Zhihu question.
 - browse customized Zhihu recommendations, followings and hot lists.
+- batch publish all markdown notes in a folder (recursive) with progress and summary.
+- convert Mermaid code blocks to images automatically during publish.
 
 ## Usage
 
@@ -69,6 +71,15 @@ The created markdown file have three frontmatters:
 - `zhihu-link`: URL to your draft or articles
 
 After you typed some markdown and ready to publish, you can run command `Zhihu: Publish current article`. After doing that, the plugin will translate your markdown to Zhihu featured HTML, and publish it to Zhihu. You may **wait a few seconds** before you can actually see the article on Zhihu.
+
+### Batch publish a folder
+
+Run `Zhihu: Publish all notes in folder to Zhihu`, choose a folder, and start batch publish.
+
+- It recursively publishes all `.md` files in the selected folder.
+- You can skip already published notes (`zhihu-link` exists) or overwrite them.
+- Progress is shown per file and a summary shows success/skip/fail counts.
+- Delay between files is configurable in settings (`Batch publish delay (seconds)`, default `5`).
 
 ### Publish answers
 
@@ -117,6 +128,11 @@ The result:
 Just insert your images with markdown syntax, and the plugin will do the rest. If the images are local, use the Obsidian flavored `![[image|caption]]` syntax. If the images are online, use GFM syntax: `![caption](https://img.link)`. The plugin will automatically download the URL and upload to Zhihu.
 
 Please **DO NOT** use the `![caption](...)` syntax for local images, or they may not be uploaded properly.
+
+### Mermaid
+
+Mermaid fenced code blocks are converted to images and uploaded to Zhihu automatically during publish.
+This conversion only affects the outgoing publish content; your local markdown file stays unchanged.
 
 ### Article cover
 

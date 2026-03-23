@@ -22,6 +22,14 @@ export default {
         cancel: "Cancel",
         confirmOpen: "Confirm to open",
         notFound: "Not found",
+        batchPublishAllInFolder: "Publish all notes in folder to Zhihu",
+        batchPublishConfigTitle: "Batch publish to Zhihu",
+        batchPublishSelectFolder: "Folder",
+        batchPublishChooseFolder: "Choose",
+        batchPublishOverwrite: "Overwrite published notes",
+        batchPublishOverwriteDesc:
+            "If disabled, notes with existing zhihu-link will be skipped.",
+        batchPublishStart: "Start batch publish",
     },
     notice: {
         notLogin: "You are logout, please login first.",
@@ -99,6 +107,9 @@ export default {
             "Failed to convert Typst image.\n Please check the syntax",
         enterPathInstruction: "Please enter Typst path in settings",
         imgSearchFailed: "cannot find image",
+        batchPublishingProgress: "Publishing",
+        batchPublishingSkip: "Skip already published",
+        batchPublishingSummary: "Batch publish complete",
     },
     error: {
         unknownError: "Unknown error",
@@ -128,6 +139,7 @@ export default {
         errorHandlingMermaid: "Error handling Mermaid diagram:",
         detectTypstVersionFailed:
             "Error occurred while detecting Typst version",
+        batchPublishFileFailed: "Batch publish failed for file:",
     },
     settings: {
         accountTitle: "My account",
@@ -174,6 +186,9 @@ export default {
         turnImgOffline: "Save images offline when opening Zhihu links",
         turnImgOfflineDesc:
             "If enabled, images will be downloaded and stored in the zhihu folder, with filenames set to their MD5 hashes",
+        batchPublishDelay: "Batch publish delay (seconds)",
+        batchPublishDelayDesc:
+            "Delay between each note publish to reduce API rate limits.",
         mermaidScale: "Mermaid image clarity",
         mermaidScaleDesc: "Adjust the clarity of Mermaid images",
         UltraHD: "Ultra High Definition",

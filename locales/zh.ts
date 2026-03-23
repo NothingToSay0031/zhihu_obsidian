@@ -20,6 +20,13 @@ export default {
         cancel: "取消",
         confirmOpen: "确认打开",
         notFound: "未找到",
+        batchPublishAllInFolder: "发布文件夹内全部笔记到知乎",
+        batchPublishConfigTitle: "批量发布到知乎",
+        batchPublishSelectFolder: "文件夹",
+        batchPublishChooseFolder: "选择",
+        batchPublishOverwrite: "覆盖已发布笔记",
+        batchPublishOverwriteDesc: "关闭后会跳过已存在 zhihu-link 的笔记",
+        batchPublishStart: "开始批量发布",
     },
     notice: {
         notLogin: "你已登出，请先登录。",
@@ -94,6 +101,9 @@ export default {
         typstConvertImgFailed: "Typst 转换图片失败，\n请检查语法是否正确",
         enterPathInstruction: "请在设置中添加 Typst 路径",
         imgSearchFailed: "找不到图片",
+        batchPublishingProgress: "正在发布",
+        batchPublishingSkip: "跳过已发布",
+        batchPublishingSummary: "批量发布完成",
     },
     error: {
         unknownError: "未知错误",
@@ -122,6 +132,7 @@ export default {
         uploadMermaidImgFailed: "上传 Mermaid 图像到知乎失败。",
         errorHandlingMermaid: "处理 Mermaid 图时出错：",
         detectTypstVersionFailed: "检测 Typst 版本时出错",
+        batchPublishFileFailed: "批量发布文件失败：",
     },
     settings: {
         accountTitle: "我的账户",
@@ -164,6 +175,9 @@ export default {
         turnImgOffline: "打开知乎链接时将图片离线保存",
         turnImgOfflineDesc:
             "如果启用，那么图片会被下载并储存在 zhihu 文件夹中，图片名就是它的 md5 值",
+        batchPublishDelay: "批量发布间隔（秒）",
+        batchPublishDelayDesc:
+            "每篇之间的等待时间，用于降低触发知乎 API 限流的概率",
         mermaidScale: "Mermaid 图像清晰度",
         mermaidScaleDesc: "调整 Mermaid 图像的清晰度",
         UltraHD: "超清",

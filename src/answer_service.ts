@@ -9,6 +9,7 @@ import { loadSettings } from "./settings";
 import { fmtDate } from "./utilities";
 import i18n, { type Lang } from "../locales";
 import { parseDisclaimer } from "./disclaimer";
+import { convertMermaidBlocks } from "./mermaidToImage";
 
 const locale: Lang = i18n.current;
 
@@ -97,7 +98,8 @@ export async function publishCurrentAnswer(app: App, toDraft = false) {
             new Notice(`${locale.error.unknownError}`);
             return;
     }
-    let zhihuHTML = await render.remarkMdToHTML(app, rmFmContent);
+    const mermaidConverted = await convertMermaidBlocks(app, rmFmContent);
+    let zhihuHTML = await render.remarkMdToHTML(app, mermaidConverted);
     if (settings.popularize) {
         zhihuHTML = addPopularizeStr(zhihuHTML);
     }

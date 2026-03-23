@@ -1,4 +1,4 @@
-import { App, Vault, Notice, requestUrl, normalizePath } from "obsidian";
+import { App, Vault, Notice, requestUrl, normalizePath, TFile } from "obsidian";
 import * as dataUtil from "./data";
 import * as topicsUtil from "./topics";
 import * as fm from "./frontmatter";
@@ -12,6 +12,7 @@ import { loadSettings } from "./settings";
 import i18n, { type Lang } from "../locales";
 import { fmtDate } from "./utilities";
 import { parseDisclaimer } from "./disclaimer";
+import { convertMermaidBlocks } from "./mermaidToImage";
 const locale: Lang = i18n.current;
 
 export async function publishCurrentArticle(
@@ -19,13 +20,23 @@ export async function publishCurrentArticle(
     toDraft = false,
 ): Promise<string | undefined> {
     const activeFile = app.workspace.getActiveFile();
-    const vault = app.vault;
-    const settings = await loadSettings(vault);
-    if (!activeFile) {
+    if (!activeFile || activeFile.extension !== "md") {
         console.error(locale.error.noActiveFileFound);
         return;
     }
-    const fileCache = app.metadataCache.getFileCache(activeFile);
+    return publishArticleFile(app, activeFile, { toDraft });
+}
+
+export async function publishArticleFile(
+    app: App,
+    file: TFile,
+    options?: { toDraft?: boolean; overwritePublished?: boolean },
+): Promise<string | undefined> {
+    const toDraft = options?.toDraft ?? false;
+    const overwritePublished = options?.overwritePublished ?? true;
+    const vault = app.vault;
+    const settings = await loadSettings(vault);
+    const fileCache = app.metadataCache.getFileCache(file);
     const frontmatter = fileCache?.frontmatter;
     if (!frontmatter) {
         new Notice(`${locale.notice.noFrontmatter}`);
@@ -41,7 +52,10 @@ export async function publishCurrentArticle(
     const title = frontmatter["zhihu-title"] || locale.untitled;
     const toc = !!frontmatter["zhihu-toc"];
     const disclaimer = frontmatter["zhihu-disclaimer"];
-    const rawContent = await app.vault.read(activeFile);
+    if (!overwritePublished && status === 1) {
+        return "SKIPPED_ALREADY_PUBLISHED";
+    }
+    const rawContent = await app.vault.read(file);
     const rmFmContent = fm.removeFrontmatter(rawContent);
     // 获取文章的ID，如果未发表则新建一个。
     let articleId = "";
@@ -79,7 +93,8 @@ export async function publishCurrentArticle(
         await patchDraft(vault, articleId, patchBody);
         new Notice(`${locale.notice.coverUploadSuccess}`);
     }
-    let zhihuHTML = await render.remarkMdToHTML(app, rmFmContent);
+    const mermaidConverted = await convertMermaidBlocks(app, rmFmContent);
+    let zhihuHTML = await render.remarkMdToHTML(app, mermaidConverted);
     if (settings.popularize) {
         zhihuHTML = addPopularizeStr(zhihuHTML); // 加上推广文字
     }
@@ -123,14 +138,14 @@ export async function publishCurrentArticle(
     switch (status) {
         case 0: // 未发表
         case 2: // 未发表但已生成草稿
-            await app.fileManager.processFrontMatter(activeFile, (fm) => {
+            await app.fileManager.processFrontMatter(file, (fm) => {
                 fm["zhihu-link"] = url;
                 fm["zhihu-created-at"] = fmtDate(new Date());
             });
             new Notice(`${locale.notice.publishArticleSuccess}`);
             break;
         case 1: // 已发表
-            await app.fileManager.processFrontMatter(activeFile, (fm) => {
+            await app.fileManager.processFrontMatter(file, (fm) => {
                 fm["zhihu-updated-at"] = fmtDate(new Date());
             });
             new Notice(`${locale.notice.updateArticleSuccess}`);
@@ -139,6 +154,60 @@ export async function publishCurrentArticle(
             new Notice(`${locale.error.unknownError}`);
             break;
     }
+}
+
+export async function batchPublishFolder(
+    app: App,
+    folderPath: string,
+    overwritePublished = false,
+) {
+    const folder = app.vault.getAbstractFileByPath(folderPath);
+    if (!folder) {
+        new Notice(`${locale.error.noActiveFileFound}`);
+        return;
+    }
+    const settings = await loadSettings(app.vault);
+    const delayMs = Math.max(0, settings.batchPublishDelay * 1000);
+    const files = app.vault
+        .getMarkdownFiles()
+        .filter((f) =>
+            folderPath === "/"
+                ? true
+                : f.path.startsWith(`${folderPath}/`) || f.path === folderPath,
+        );
+
+    let success = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        new Notice(
+            `${locale.notice.batchPublishingProgress} (${i + 1}/${files.length}): ${file.name}`,
+        );
+        try {
+            const result = await publishArticleFile(app, file, {
+                overwritePublished,
+            });
+            if (result === "SKIPPED_ALREADY_PUBLISHED") {
+                skipped += 1;
+                new Notice(`${locale.notice.batchPublishingSkip}: ${file.name}`);
+            } else {
+                success += 1;
+            }
+        } catch (error) {
+            failed += 1;
+            console.error(locale.error.batchPublishFileFailed, file.path, error);
+        }
+        if (i < files.length - 1 && delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+    }
+
+    new Notice(
+        `${locale.notice.batchPublishingSummary}: success=${success}, skipped=${skipped}, failed=${failed}`,
+        8000,
+    );
 }
 
 export async function createNewZhihuArticle(app: App) {

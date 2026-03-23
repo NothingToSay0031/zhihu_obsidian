@@ -22,6 +22,7 @@ export interface ZhihuSettings {
     typstFallbackToTeX: boolean;
     typstDisplayToTeX: boolean;
     turnImgOffline: boolean;
+    batchPublishDelay: number;
 }
 
 // Default settings in case none exist in zhihu-data.json
@@ -47,6 +48,7 @@ const DEFAULT_SETTINGS: ZhihuSettings = {
     typstFallbackToTeX: true,
     typstDisplayToTeX: false,
     turnImgOffline: true,
+    batchPublishDelay: 5,
 };
 
 /**

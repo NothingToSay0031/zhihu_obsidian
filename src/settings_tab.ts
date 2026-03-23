@@ -299,6 +299,28 @@ function TurnImgOfflineSetting(
         );
 }
 
+function BatchPublishDelaySetting(
+    containerEl: HTMLElement,
+    tab: ZhihuSettingTab,
+    batchPublishDelay: number,
+) {
+    new Setting(containerEl)
+        .setName(locale.settings.batchPublishDelay)
+        .setDesc(locale.settings.batchPublishDelayDesc)
+        .addText((text) =>
+            text
+                .setPlaceholder("5")
+                .setValue(batchPublishDelay.toString())
+                .onChange(async (value) => {
+                    const parsed = Number(value);
+                    if (Number.isNaN(parsed) || parsed < 0) return;
+                    await saveSettings(tab.app.vault, {
+                        batchPublishDelay: parsed,
+                    });
+                }),
+        );
+}
+
 function MermaidScaleSetting(
     containerEl: HTMLElement,
     tab: ZhihuSettingTab,
@@ -669,6 +691,8 @@ export class ZhihuSettingTab extends PluginSettingTab {
         AutoOpenZhihuLinkSetting(containerEl, this, sts.autoOpenZhihuLink);
         // 打开知乎链接时是否离线加载图片
         TurnImgOfflineSetting(containerEl, this, sts.turnImgOffline);
+        // 批量发布间隔（秒）
+        BatchPublishDelaySetting(containerEl, this, sts.batchPublishDelay);
         // mermaid 图片的清晰程度
         MermaidScaleSetting(containerEl, this, sts.mermaidScale);
         // 是否添加推广语句

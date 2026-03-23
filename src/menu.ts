@@ -4,18 +4,19 @@ import * as answer from "./answer_service";
 import * as login from "./login_service";
 
 import i18n, { type Lang } from "../locales";
+import { BatchPublishConfigModal } from "./folderSuggestModal";
 const locale = i18n.current;
 
 export function registerMenuCommands(plugin: Plugin) {
     const loginNoticeStr = locale.notice.notLogin;
     // 监听右键菜单事件
-    plugin.registerEvent(
+        plugin.registerEvent(
         plugin.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
             menu.addItem((item) => {
                 item.setTitle(locale.ui.publishCurrentAnswer).onClick(
                     async () => {
-                        if (await login.checkIsUserLogin(this.app.vault)) {
-                            await answer.publishCurrentAnswer(this.app);
+                        if (await login.checkIsUserLogin(plugin.app.vault)) {
+                            await answer.publishCurrentAnswer(plugin.app);
                         } else {
                             new Notice(loginNoticeStr);
                         }
@@ -25,8 +26,8 @@ export function registerMenuCommands(plugin: Plugin) {
             menu.addItem((item) => {
                 item.setTitle(locale.ui.publishCurrentArticle).onClick(
                     async () => {
-                        if (await login.checkIsUserLogin(this.app.vault)) {
-                            await publish.publishCurrentArticle(this.app);
+                        if (await login.checkIsUserLogin(plugin.app.vault)) {
+                            await publish.publishCurrentArticle(plugin.app);
                         } else {
                             new Notice(loginNoticeStr);
                         }
@@ -42,8 +43,8 @@ export function registerMenuCommands(plugin: Plugin) {
                 menu.addItem((item) => {
                     item.setTitle(locale.ui.publishCurrentAnswer).onClick(
                         async () => {
-                            if (await login.checkIsUserLogin(this.app.vault)) {
-                                await answer.publishCurrentAnswer(this.app);
+                            if (await login.checkIsUserLogin(plugin.app.vault)) {
+                                await answer.publishCurrentAnswer(plugin.app);
                             } else {
                                 new Notice(loginNoticeStr);
                             }
@@ -53,14 +54,37 @@ export function registerMenuCommands(plugin: Plugin) {
                 menu.addItem((item) => {
                     item.setTitle(locale.ui.publishCurrentArticle).onClick(
                         async () => {
-                            if (await login.checkIsUserLogin(this.app.vault)) {
-                                await publish.publishCurrentArticle(this.app);
+                            if (await login.checkIsUserLogin(plugin.app.vault)) {
+                                await publish.publishCurrentArticle(plugin.app);
                             } else {
                                 new Notice(loginNoticeStr);
                             }
                         },
                     );
                 });
+                if (file instanceof TFolder) {
+                    menu.addItem((item) => {
+                        item.setTitle(locale.ui.batchPublishAllInFolder).onClick(
+                            async () => {
+                                if (!(await login.checkIsUserLogin(plugin.app.vault))) {
+                                    new Notice(loginNoticeStr);
+                                    return;
+                                }
+                                new BatchPublishConfigModal(
+                                    plugin.app,
+                                    file,
+                                    async (folder, overwritePublished) => {
+                                        await publish.batchPublishFolder(
+                                            plugin.app,
+                                            folder.path,
+                                            overwritePublished,
+                                        );
+                                    },
+                                ).open();
+                            },
+                        );
+                    });
+                }
             },
         ),
     );
