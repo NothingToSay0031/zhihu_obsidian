@@ -1,4 +1,4 @@
-import { App, TextComponent, Vault, Modal, Notice, requestUrl } from "obsidian";
+import { App, TextComponent, Vault, Modal, Notice, requestUrl, TFile } from "obsidian";
 import * as dataUtil from "./data";
 import * as fm from "./frontmatter";
 import * as render from "./custom_render";
@@ -9,7 +9,14 @@ import { loadSettings } from "./settings";
 import { fmtDate } from "./utilities";
 import i18n, { type Lang } from "../locales";
 import { parseDisclaimer } from "./disclaimer";
-import { convertMermaidBlocks } from "./mermaidToImage";
+import {
+    convertMermaidBlocks,
+    convertMermaidBlocksToLocalImages,
+} from "./mermaidToImage";
+import {
+    cleanupTemporaryPublishArtifacts,
+    isTemporaryZhihuFile,
+} from "./publish_cleanup";
 
 const locale: Lang = i18n.current;
 
@@ -59,34 +66,31 @@ export async function publishCurrentAnswer(app: App, toDraft = false) {
     const locale = i18n.current;
     const vault = app.vault;
     const settings = await loadSettings(vault);
-    if (!activeFile) {
+    if (!activeFile || activeFile.extension !== "md") {
         console.error(locale.error.noActiveFileFound);
         return;
     }
-    const fileCache = app.metadataCache.getFileCache(activeFile);
-    const frontmatter = fileCache?.frontmatter;
-    if (!frontmatter) {
-        new Notice(`${locale.notice.noFrontmatter}`);
-        return;
-    }
-    const questionLink = frontmatter["zhihu-question"];
+    const frontmatter = await ensureAnswerPublishFrontmatter(app, activeFile);
+    const questionLink = frontmatter["zhihu-question"] ?? "";
     if (!isZhihuQuestionLink(questionLink)) {
         new Notice(`${locale.notice.questionLinkInvalid}`);
         return;
     }
     const questionId = extractQuestionId(questionLink);
-    const status = publishStatus(frontmatter["zhihu-link"]);
+    const answerLink = frontmatter["zhihu-link"] ?? "";
+    const status = publishStatus(answerLink);
     const toc = !!frontmatter["zhihu-toc"];
     const disclaimer = frontmatter["zhihu-disclaimer"];
     const rawContent = await app.vault.read(activeFile);
     const rmFmContent = fm.removeFrontmatter(rawContent);
+    const publishContent = await convertMermaidBlocks(app, rmFmContent);
 
     let answerId = "";
     switch (status) {
         case 0:
             break;
         case 1:
-            answerId = frontmatter["zhihu-link"].replace(
+            answerId = answerLink.replace(
                 `https://www.zhihu.com/question/${questionId}/answer/`,
                 "",
             );
@@ -98,8 +102,7 @@ export async function publishCurrentAnswer(app: App, toDraft = false) {
             new Notice(`${locale.error.unknownError}`);
             return;
     }
-    const mermaidConverted = await convertMermaidBlocks(app, rmFmContent);
-    let zhihuHTML = await render.remarkMdToHTML(app, mermaidConverted);
+    let zhihuHTML = await render.remarkMdToHTML(app, publishContent);
     if (settings.popularize) {
         zhihuHTML = addPopularizeStr(zhihuHTML);
     }
@@ -157,6 +160,13 @@ export async function publishCurrentAnswer(app: App, toDraft = false) {
         default:
             new Notice(`${locale.error.unknownError}`);
             return;
+    }
+
+    if (settings.cleanupPublishTempFiles && isTemporaryZhihuFile(activeFile)) {
+        const cleanupResult = await cleanupTemporaryPublishArtifacts(app, activeFile);
+        console.log(
+            `[Zhihu][Cleanup] deleted _zhihu answer note=${cleanupResult.deletedFile}, images=${cleanupResult.deletedImages}`,
+        );
     }
 }
 
@@ -368,17 +378,18 @@ export async function convertToNewZhihuAnswer(app: App, questionLink: string) {
     }
 
     try {
-        // 给当前文件添加/更新 frontmatter 信息
-        await app.fileManager.processFrontMatter(activeFile, (fm) => {
+        const clonedFile = await cloneAsZhihuAnswerFile(app, activeFile);
+        // 给新文件添加/更新 frontmatter 信息
+        await app.fileManager.processFrontMatter(clonedFile, (fm) => {
             fm["zhihu-question"] = questionLink;
         });
 
         // 重新打开当前文件以刷新显示
         const leaf = workspace.getLeaf(false);
-        await leaf.openFile(activeFile);
+        await leaf.openFile(clonedFile);
 
         new Notice("已将当前文件转换为知乎回答格式");
-        return activeFile.path;
+        return clonedFile.path;
     } catch (error) {
         console.error(locale.error.createModifyFileFailed, error);
         new Notice("添加知乎回答元信息失败，请重试。");
@@ -412,4 +423,65 @@ function isZhihuQuestionLink(link: string): boolean {
 function extractQuestionId(url: string): string | null {
     const match = url.match(/zhihu\.com\/question\/(\d+)/);
     return match ? match[1] : "";
+}
+
+async function ensureAnswerPublishFrontmatter(
+    app: App,
+    file: TFile,
+): Promise<AnswerPublishFrontmatter> {
+    const cachedFrontmatter = app.metadataCache.getFileCache(file)
+        ?.frontmatter as Record<string, unknown> | undefined;
+    if (cachedFrontmatter) {
+        return cachedFrontmatter as AnswerPublishFrontmatter;
+    }
+
+    await app.fileManager.processFrontMatter(file, (frontmatter) => {
+        if (typeof frontmatter["zhihu-question"] !== "string") {
+            frontmatter["zhihu-question"] = "";
+        }
+    });
+
+    const updatedFrontmatter = app.metadataCache.getFileCache(file)
+        ?.frontmatter as Record<string, unknown> | undefined;
+    if (updatedFrontmatter) {
+        return updatedFrontmatter as AnswerPublishFrontmatter;
+    }
+
+    return { "zhihu-question": "" };
+}
+
+type AnswerPublishFrontmatter = {
+    "zhihu-question"?: string;
+    "zhihu-link"?: string;
+    "zhihu-toc"?: unknown;
+    "zhihu-disclaimer"?: unknown;
+    [key: string]: unknown;
+};
+
+async function cloneAsZhihuAnswerFile(app: App, source: TFile): Promise<TFile> {
+    const { vault } = app;
+    const sourceContent = await vault.read(source);
+    const strippedContent = fm.removeFrontmatter(sourceContent);
+    const zhihuContent = await convertMermaidBlocksToLocalImages(
+        app,
+        strippedContent,
+        source.path,
+    );
+    const sourceDir =
+        source.parent && source.parent.path !== "/" ? source.parent.path : "";
+    const baseName = source.basename;
+
+    let targetName = `${baseName}_zhihu.md`;
+    let counter = 1;
+    while (
+        vault.getAbstractFileByPath(
+            sourceDir ? `${sourceDir}/${targetName}` : targetName,
+        )
+    ) {
+        targetName = `${baseName}_zhihu_${counter}.md`;
+        counter += 1;
+    }
+
+    const targetPath = sourceDir ? `${sourceDir}/${targetName}` : targetName;
+    return await vault.create(targetPath, zhihuContent);
 }

@@ -23,6 +23,7 @@ export interface ZhihuSettings {
     typstDisplayToTeX: boolean;
     turnImgOffline: boolean;
     batchPublishDelay: number;
+    cleanupPublishTempFiles: boolean;
 }
 
 // Default settings in case none exist in zhihu-data.json
@@ -49,6 +50,7 @@ const DEFAULT_SETTINGS: ZhihuSettings = {
     typstDisplayToTeX: false,
     turnImgOffline: true,
     batchPublishDelay: 5,
+    cleanupPublishTempFiles: false,
 };
 
 /**

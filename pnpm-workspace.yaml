@@ -1,0 +1,5 @@
+onlyBuiltDependencies:
+  - "mdast-util-wiki-link"
+  - "micromark-extension-wiki-link"
+  - "micromark-extension-math"
+  - "remark-gfm"

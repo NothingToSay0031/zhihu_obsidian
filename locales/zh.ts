@@ -178,6 +178,9 @@ export default {
         batchPublishDelay: "批量发布间隔（秒）",
         batchPublishDelayDesc:
             "每篇之间的等待时间，用于降低触发知乎 API 限流的概率",
+        cleanupPublishTempFiles: "发布后删除临时文件",
+        cleanupPublishTempFilesDesc:
+            "发布成功后删除用于发布的 _zhihu 临时 markdown 及本地 _zhihu_assets 中的 Mermaid 图片。",
         mermaidScale: "Mermaid 图像清晰度",
         mermaidScaleDesc: "调整 Mermaid 图像的清晰度",
         UltraHD: "超清",

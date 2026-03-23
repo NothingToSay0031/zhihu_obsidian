@@ -55,7 +55,16 @@ export function registerMenuCommands(plugin: Plugin) {
                     item.setTitle(locale.ui.publishCurrentArticle).onClick(
                         async () => {
                             if (await login.checkIsUserLogin(plugin.app.vault)) {
-                                await publish.publishCurrentArticle(plugin.app);
+                                if (file instanceof TFile) {
+                                    await publish.publishArticleFromFile(
+                                        plugin.app,
+                                        file,
+                                    );
+                                } else {
+                                    await publish.publishCurrentArticle(
+                                        plugin.app,
+                                    );
+                                }
                             } else {
                                 new Notice(loginNoticeStr);
                             }

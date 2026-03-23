@@ -321,6 +321,23 @@ function BatchPublishDelaySetting(
         );
 }
 
+function CleanupPublishTempFilesSetting(
+    containerEl: HTMLElement,
+    tab: ZhihuSettingTab,
+    cleanupPublishTempFiles: boolean,
+) {
+    new Setting(containerEl)
+        .setName(locale.settings.cleanupPublishTempFiles)
+        .setDesc(locale.settings.cleanupPublishTempFilesDesc)
+        .addToggle((toggle) =>
+            toggle.setValue(cleanupPublishTempFiles).onChange(async (value) => {
+                await saveSettings(tab.app.vault, {
+                    cleanupPublishTempFiles: value,
+                });
+            }),
+        );
+}
+
 function MermaidScaleSetting(
     containerEl: HTMLElement,
     tab: ZhihuSettingTab,
@@ -693,6 +710,12 @@ export class ZhihuSettingTab extends PluginSettingTab {
         TurnImgOfflineSetting(containerEl, this, sts.turnImgOffline);
         // 批量发布间隔（秒）
         BatchPublishDelaySetting(containerEl, this, sts.batchPublishDelay);
+        // 发布后清理 _zhihu 临时文件与 mermaid 图片
+        CleanupPublishTempFilesSetting(
+            containerEl,
+            this,
+            sts.cleanupPublishTempFiles ?? false,
+        );
         // mermaid 图片的清晰程度
         MermaidScaleSetting(containerEl, this, sts.mermaidScale);
         // 是否添加推广语句

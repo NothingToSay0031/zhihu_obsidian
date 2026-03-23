@@ -17,8 +17,8 @@ export default {
         refreshHotlists: "Refresh hot lists",
         nextPage: "Next page",
         previousPage: "Previous page",
-        publishCurrentAnswer: "publish current answer",
-        publishCurrentArticle: "publish current article",
+        publishCurrentAnswer: "Publish current answer",
+        publishCurrentArticle: "Publish current article",
         cancel: "Cancel",
         confirmOpen: "Confirm to open",
         notFound: "Not found",
@@ -189,6 +189,9 @@ export default {
         batchPublishDelay: "Batch publish delay (seconds)",
         batchPublishDelayDesc:
             "Delay between each note publish to reduce API rate limits.",
+        cleanupPublishTempFiles: "Delete temporary publish files",
+        cleanupPublishTempFilesDesc:
+            "After successful publish, delete generated _zhihu markdown and local _zhihu_assets mermaid images used for publishing.",
         mermaidScale: "Mermaid image clarity",
         mermaidScaleDesc: "Adjust the clarity of Mermaid images",
         UltraHD: "Ultra High Definition",

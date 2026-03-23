@@ -12,7 +12,14 @@ import { loadSettings } from "./settings";
 import i18n, { type Lang } from "../locales";
 import { fmtDate } from "./utilities";
 import { parseDisclaimer } from "./disclaimer";
-import { convertMermaidBlocks } from "./mermaidToImage";
+import {
+    convertMermaidBlocks,
+    convertMermaidBlocksToLocalImages,
+} from "./mermaidToImage";
+import {
+    cleanupTemporaryPublishArtifacts,
+    isTemporaryZhihuFile,
+} from "./publish_cleanup";
 const locale: Lang = i18n.current;
 
 export async function publishCurrentArticle(
@@ -24,7 +31,19 @@ export async function publishCurrentArticle(
         console.error(locale.error.noActiveFileFound);
         return;
     }
-    return publishArticleFile(app, activeFile, { toDraft });
+    return publishArticleFromFile(app, activeFile, toDraft);
+}
+
+export async function publishArticleFromFile(
+    app: App,
+    sourceFile: TFile,
+    toDraft = false,
+): Promise<string | undefined> {
+    const targetFile = await prepareArticlePublishTarget(app, sourceFile);
+    if (!targetFile) {
+        return;
+    }
+    return publishArticleFile(app, targetFile, { toDraft });
 }
 
 export async function publishArticleFile(
@@ -36,20 +55,19 @@ export async function publishArticleFile(
     const overwritePublished = options?.overwritePublished ?? true;
     const vault = app.vault;
     const settings = await loadSettings(vault);
-    const fileCache = app.metadataCache.getFileCache(file);
-    const frontmatter = fileCache?.frontmatter;
-    if (!frontmatter) {
-        new Notice(`${locale.notice.noFrontmatter}`);
-        return;
-    }
-    const topics = normalizeStr(frontmatter["zhihu-topics"]);
+    const shouldCleanupTempFiles = settings.cleanupPublishTempFiles;
+    const frontmatter = await ensureArticlePublishFrontmatter(app, file);
+    const topics = normalizeTopics(frontmatter["zhihu-topics"]);
     if (topics.length === 0) {
         new Notice(`${locale.notice.noTopics}`);
         return;
     }
     // 这里链接属性缺失或者为空，都表明未发表文章
-    const status = publishStatus(frontmatter["zhihu-link"]);
-    const title = frontmatter["zhihu-title"] || locale.untitled;
+    const link = frontmatter["zhihu-link"];
+    const linkValue = link ?? "";
+    const status = publishStatus(link);
+    const baseTitle = frontmatter["zhihu-title"] || locale.untitled;
+    const title = withFolderTitlePrefix(file, baseTitle);
     const toc = !!frontmatter["zhihu-toc"];
     const disclaimer = frontmatter["zhihu-disclaimer"];
     if (!overwritePublished && status === 1) {
@@ -57,6 +75,7 @@ export async function publishArticleFile(
     }
     const rawContent = await app.vault.read(file);
     const rmFmContent = fm.removeFrontmatter(rawContent);
+    const publishContent = await convertMermaidBlocks(app, rmFmContent);
     // 获取文章的ID，如果未发表则新建一个。
     let articleId = "";
     switch (status) {
@@ -64,15 +83,20 @@ export async function publishArticleFile(
             articleId = await newDraft(vault, title);
             break;
         case 1: // 已发表
-            articleId = frontmatter["zhihu-link"].replace(
+            articleId = linkValue.replace(
                 "https://zhuanlan.zhihu.com/p/",
                 "",
             );
             break;
         case 2: // 未发表但已生成草稿
-            articleId = frontmatter["zhihu-link"].match(
+            const draftMatch = linkValue.match(
                 /^https:\/\/zhuanlan\.zhihu\.com\/p\/(\d+)(\/edit)?$/,
-            )[1];
+            );
+            if (!draftMatch) {
+                new Notice(`${locale.notice.linkInvalid}`);
+                return;
+            }
+            articleId = draftMatch[1];
             break;
         case 3: // 无效链接
             new Notice(`${locale.notice.linkInvalid}`);
@@ -83,7 +107,7 @@ export async function publishArticleFile(
     }
     // 处理文章封面上传
     const cover = frontmatter["zhihu-cover"];
-    if (!(typeof cover === "undefined" || cover === null)) {
+    if (typeof cover === "string" && cover.trim().length > 0) {
         const coverURL = await imageService.uploadCover(app, cover);
         const patchBody = {
             titleImage: coverURL,
@@ -93,8 +117,7 @@ export async function publishArticleFile(
         await patchDraft(vault, articleId, patchBody);
         new Notice(`${locale.notice.coverUploadSuccess}`);
     }
-    const mermaidConverted = await convertMermaidBlocks(app, rmFmContent);
-    let zhihuHTML = await render.remarkMdToHTML(app, mermaidConverted);
+    let zhihuHTML = await render.remarkMdToHTML(app, publishContent);
     if (settings.popularize) {
         zhihuHTML = addPopularizeStr(zhihuHTML); // 加上推广文字
     }
@@ -126,7 +149,7 @@ export async function publishArticleFile(
     }
     // 把文章投稿至问题
     const toQuestion = frontmatter["zhihu-question"];
-    if (toQuestion) {
+    if (typeof toQuestion === "string" && toQuestion.trim().length > 0) {
         const questionId = extractQuestionId(toQuestion);
         if (questionId) {
             await checkQuestion(vault, articleId, questionId);
@@ -139,6 +162,7 @@ export async function publishArticleFile(
         case 0: // 未发表
         case 2: // 未发表但已生成草稿
             await app.fileManager.processFrontMatter(file, (fm) => {
+                fm["zhihu-title"] = title;
                 fm["zhihu-link"] = url;
                 fm["zhihu-created-at"] = fmtDate(new Date());
             });
@@ -146,6 +170,7 @@ export async function publishArticleFile(
             break;
         case 1: // 已发表
             await app.fileManager.processFrontMatter(file, (fm) => {
+                fm["zhihu-title"] = title;
                 fm["zhihu-updated-at"] = fmtDate(new Date());
             });
             new Notice(`${locale.notice.updateArticleSuccess}`);
@@ -153,6 +178,13 @@ export async function publishArticleFile(
         default:
             new Notice(`${locale.error.unknownError}`);
             break;
+    }
+
+    if (shouldCleanupTempFiles && isTemporaryZhihuFile(file)) {
+        const cleanupResult = await cleanupTemporaryPublishArtifacts(app, file);
+        console.log(
+            `[Zhihu][Cleanup] deleted _zhihu note=${cleanupResult.deletedFile}, images=${cleanupResult.deletedImages}`,
+        );
     }
 }
 
@@ -174,6 +206,12 @@ export async function batchPublishFolder(
             folderPath === "/"
                 ? true
                 : f.path.startsWith(`${folderPath}/`) || f.path === folderPath,
+        )
+        .sort((a, b) =>
+            a.path.localeCompare(b.path, undefined, {
+                numeric: true,
+                sensitivity: "base",
+            }),
         );
 
     let success = 0;
@@ -186,12 +224,19 @@ export async function batchPublishFolder(
             `${locale.notice.batchPublishingProgress} (${i + 1}/${files.length}): ${file.name}`,
         );
         try {
-            const result = await publishArticleFile(app, file, {
+            const targetFile = await prepareArticlePublishTarget(app, file);
+            if (!targetFile) {
+                failed += 1;
+                continue;
+            }
+            const result = await publishArticleFile(app, targetFile, {
                 overwritePublished,
             });
             if (result === "SKIPPED_ALREADY_PUBLISHED") {
                 skipped += 1;
-                new Notice(`${locale.notice.batchPublishingSkip}: ${file.name}`);
+                new Notice(
+                    `${locale.notice.batchPublishingSkip}: ${targetFile.name}`,
+                );
             } else {
                 success += 1;
             }
@@ -230,7 +275,7 @@ export async function createNewZhihuArticle(app: App) {
         const articleId = await newDraft(vault, defaultTitle);
         await fileManager.processFrontMatter(newFile, (fm) => {
             fm["zhihu-title"] = defaultTitle;
-            fm["zhihu-topics"] = "";
+            fm["zhihu-topics"] = defaultTitle;
             fm["zhihu-link"] = `https://zhuanlan.zhihu.com/p/${articleId}/edit`;
         });
         const leaf = workspace.getLeaf(false);
@@ -258,18 +303,19 @@ export async function convertToNewZhihuArticle(app: App) {
         const fileName = activeFile.name.replace(/\.md$/, "");
         const defaultTitle = fileName;
         const articleId = await newDraft(vault, defaultTitle);
+        const clonedFile = await cloneAsZhihuFile(app, activeFile);
 
-        // 给当前文件添加/更新 frontmatter 信息
-        await app.fileManager.processFrontMatter(activeFile, (fm) => {
+        // 给新文件添加/更新 frontmatter 信息
+        await app.fileManager.processFrontMatter(clonedFile, (fm) => {
             fm["zhihu-title"] = defaultTitle;
-            fm["zhihu-topics"] = "";
+            fm["zhihu-topics"] = defaultTitle;
             fm["zhihu-link"] = `https://zhuanlan.zhihu.com/p/${articleId}/edit`;
         });
 
         // 可选：打开当前文件
         const leaf = workspace.getLeaf(false);
-        await leaf.openFile(activeFile);
-        return activeFile.path;
+        await leaf.openFile(clonedFile);
+        return clonedFile.path;
     } catch (error) {
         console.error(locale.error.createModifyFileFailed, error);
         new Notice("添加知乎元信息失败，请重试。");
@@ -515,7 +561,7 @@ async function checkQuestion(
     }
 }
 
-function publishStatus(link: string): number {
+function publishStatus(link: string | undefined | null): number {
     if (typeof link === "undefined" || link === null) {
         // 如果链接为空或者不存在link这个属性
         // 说明未发表
@@ -546,4 +592,190 @@ function isZhihuDraftLink(link: string): boolean {
 function extractQuestionId(url: string): string | null {
     const match = url.match(/zhihu\.com\/question\/(\d+)/);
     return match ? match[1] : "";
+}
+
+function resolveDefaultTitle(file: TFile): string {
+    return file.basename || file.name.replace(/\.md$/, "");
+}
+
+function resolveParentFolderName(file: TFile): string {
+    const parentPath = file.parent?.path;
+    if (!parentPath || parentPath === "/") {
+        return "";
+    }
+    const segments = parentPath.split("/").filter(Boolean);
+    return segments.length > 0 ? segments[segments.length - 1] : "";
+}
+
+function withFolderTitlePrefix(file: TFile, title: string): string {
+    const normalizedTitle = title.trim();
+    const parentFolderName = resolveParentFolderName(file).trim();
+    if (!parentFolderName) {
+        return normalizedTitle;
+    }
+    const prefix = `${parentFolderName} `;
+    return normalizedTitle.startsWith(prefix)
+        ? normalizedTitle
+        : `${prefix}${normalizedTitle}`;
+}
+
+function normalizeTopics(value: unknown): string[] {
+    return normalizeStr(value as string | string[] | undefined)
+        .map((topic) => topic.trim())
+        .filter((topic) => topic.length > 0);
+}
+
+async function ensureArticlePublishFrontmatter(
+    app: App,
+    file: TFile,
+): Promise<ArticlePublishFrontmatter> {
+    const cachedFrontmatter = app.metadataCache.getFileCache(file)
+        ?.frontmatter as Record<string, unknown> | undefined;
+    const defaultTitle = resolveDefaultTitle(file);
+    const existingTitle =
+        typeof cachedFrontmatter?.["zhihu-title"] === "string"
+            ? cachedFrontmatter["zhihu-title"].trim()
+            : "";
+    const resolvedBaseTitle = existingTitle.length > 0 ? existingTitle : defaultTitle;
+    const resolvedPublishTitle = withFolderTitlePrefix(file, resolvedBaseTitle);
+    const hasTitle =
+        existingTitle.length > 0;
+    const hasTopics =
+        normalizeTopics(cachedFrontmatter?.["zhihu-topics"]).length > 0;
+    const linkStatus = publishStatus(
+        (cachedFrontmatter?.["zhihu-link"] as string | undefined) ?? undefined,
+    );
+    const titleAlreadyPrefixed =
+        !hasTitle || existingTitle === resolvedPublishTitle;
+
+    if (
+        cachedFrontmatter &&
+        hasTitle &&
+        hasTopics &&
+        linkStatus !== 0 &&
+        titleAlreadyPrefixed
+    ) {
+        return cachedFrontmatter as ArticlePublishFrontmatter;
+    }
+
+    const draftLink =
+        linkStatus === 0
+            ? await createDraftEditLink(app.vault, resolvedPublishTitle)
+            : undefined;
+
+    await app.fileManager.processFrontMatter(file, (frontmatter) => {
+        const currentTitle = frontmatter["zhihu-title"];
+        const baseTitle =
+            typeof currentTitle === "string" && currentTitle.trim().length > 0
+                ? currentTitle.trim()
+                : defaultTitle;
+        const publishTitle = withFolderTitlePrefix(file, baseTitle);
+        frontmatter["zhihu-title"] = publishTitle;
+
+        const topics = normalizeTopics(frontmatter["zhihu-topics"]);
+        if (topics.length === 0) {
+            frontmatter["zhihu-topics"] = baseTitle;
+        }
+        if (draftLink) {
+            frontmatter["zhihu-link"] = draftLink;
+        }
+    });
+
+    const updatedFrontmatter = app.metadataCache.getFileCache(file)
+        ?.frontmatter as Record<string, unknown> | undefined;
+    if (updatedFrontmatter) {
+        return updatedFrontmatter as ArticlePublishFrontmatter;
+    }
+
+    return {
+        ...(cachedFrontmatter ?? {}),
+        "zhihu-title": resolvedPublishTitle,
+        "zhihu-topics": hasTopics
+            ? cachedFrontmatter?.["zhihu-topics"]
+            : resolvedBaseTitle,
+        "zhihu-link":
+            draftLink ?? (cachedFrontmatter?.["zhihu-link"] as string | undefined),
+    } as ArticlePublishFrontmatter;
+}
+
+async function createDraftEditLink(
+    vault: Vault,
+    title: string,
+): Promise<string | undefined> {
+    const articleId = await newDraft(vault, title);
+    if (!articleId) {
+        return undefined;
+    }
+    return `https://zhuanlan.zhihu.com/p/${articleId}/edit`;
+}
+
+type ArticlePublishFrontmatter = {
+    "zhihu-title": string;
+    "zhihu-topics": string | string[];
+    "zhihu-link"?: string;
+    "zhihu-toc"?: unknown;
+    "zhihu-disclaimer"?: unknown;
+    "zhihu-cover"?: string;
+    "zhihu-question"?: string;
+    [key: string]: unknown;
+};
+
+async function prepareArticlePublishTarget(
+    app: App,
+    source: TFile,
+): Promise<TFile | undefined> {
+    const cachedFrontmatter = app.metadataCache.getFileCache(source)
+        ?.frontmatter as Record<string, unknown> | undefined;
+    const hasZhihuLink =
+        typeof cachedFrontmatter?.["zhihu-link"] === "string" &&
+        cachedFrontmatter["zhihu-link"].trim().length > 0;
+    const alreadyZhihuCopy = source.basename.endsWith("_zhihu");
+    if (hasZhihuLink || alreadyZhihuCopy) {
+        return source;
+    }
+
+    const clonedFile = await cloneAsZhihuFile(app, source);
+    const baseTitle = source.basename;
+    const title = withFolderTitlePrefix(source, baseTitle);
+    const draftLink = await createDraftEditLink(app.vault, title);
+    if (!draftLink) {
+        new Notice(locale.notice.generateDraftFailed);
+        return;
+    }
+
+    await app.fileManager.processFrontMatter(clonedFile, (frontmatter) => {
+        frontmatter["zhihu-title"] = title;
+        frontmatter["zhihu-topics"] = baseTitle;
+        frontmatter["zhihu-link"] = draftLink;
+    });
+    new Notice(`Created Zhihu publish file: ${clonedFile.path}`, 6000);
+    return clonedFile;
+}
+
+async function cloneAsZhihuFile(app: App, source: TFile): Promise<TFile> {
+    const { vault } = app;
+    const sourceContent = await vault.read(source);
+    const strippedContent = fm.removeFrontmatter(sourceContent);
+    const zhihuContent = await convertMermaidBlocksToLocalImages(
+        app,
+        strippedContent,
+        source.path,
+    );
+    const sourceDir =
+        source.parent && source.parent.path !== "/" ? source.parent.path : "";
+    const baseName = source.basename;
+
+    let targetName = `${baseName}_zhihu.md`;
+    let counter = 1;
+    while (
+        vault.getAbstractFileByPath(
+            sourceDir ? `${sourceDir}/${targetName}` : targetName,
+        )
+    ) {
+        targetName = `${baseName}_zhihu_${counter}.md`;
+        counter += 1;
+    }
+
+    const targetPath = sourceDir ? `${sourceDir}/${targetName}` : targetName;
+    return await vault.create(targetPath, zhihuContent);
 }
